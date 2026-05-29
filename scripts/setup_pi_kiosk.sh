@@ -210,22 +210,28 @@ setup_backlight_service() {
     return
   fi
 
-  if ! ls /sys/class/backlight/rpi_backlight/brightness >/dev/null 2>&1; then
-    warn "rpi_backlight driver not found – brightness will not be set on this system"
-    warn "If you have a different display, set brightness manually via /sys/class/backlight/*/brightness"
+  # ตรวจหา backlight path จริงของระบบ (รองรับทั้ง rpi_backlight และ 10-0045 / KMS)
+  local BACKLIGHT_PATH
+  BACKLIGHT_PATH="$(ls /sys/class/backlight/ 2>/dev/null | head -n1)"
+  if [ -z "$BACKLIGHT_PATH" ]; then
+    warn "ไม่พบ backlight driver ใน /sys/class/backlight/ – ข้าม brightness setup"
+    warn "หากใช้ Pi OS Bookworm ให้ reboot แล้วลองใหม่ หรือตรวจสอบ /boot/firmware/config.txt"
     return
   fi
+  log "พบ backlight path: $BACKLIGHT_PATH"
 
-  log "Installing backlight service (brightness=$SCREEN_BRIGHTNESS)"
-  # Write service with substituted brightness value
-  sed "s/^Environment=BRIGHTNESS=.*/Environment=BRIGHTNESS=$SCREEN_BRIGHTNESS/" \
+  log "Installing backlight service (brightness=$SCREEN_BRIGHTNESS, path=$BACKLIGHT_PATH)"
+  # ใส่ค่า BRIGHTNESS และ BACKLIGHT_PATH ลงใน service file
+  sed \
+    -e "s/^Environment=BRIGHTNESS=.*/Environment=BRIGHTNESS=$SCREEN_BRIGHTNESS/" \
+    -e "s/^Environment=BACKLIGHT_PATH=.*/Environment=BACKLIGHT_PATH=$BACKLIGHT_PATH/" \
     "$BACKLIGHT_SRC" > "$BACKLIGHT_DST"
 
   systemctl daemon-reload
   systemctl enable set-backlight
   # Apply immediately without rebooting
-  echo "$SCREEN_BRIGHTNESS" > /sys/class/backlight/rpi_backlight/brightness
-  log "Brightness set to $SCREEN_BRIGHTNESS / 255"
+  echo "$SCREEN_BRIGHTNESS" > "/sys/class/backlight/$BACKLIGHT_PATH/brightness"
+  log "Brightness set to $SCREEN_BRIGHTNESS / 255 via $BACKLIGHT_PATH"
 }
 
 set_desktop_autologin() {
@@ -349,8 +355,9 @@ print_summary() {
   echo "xset dpms $SCREEN_TIMEOUT $SCREEN_TIMEOUT $SCREEN_TIMEOUT"
   echo
   echo "Adjust brightness at runtime (0-255):"
-  echo "  echo <value> | sudo tee /sys/class/backlight/rpi_backlight/brightness"
-  echo "  # example 50%: echo 128 | sudo tee /sys/class/backlight/rpi_backlight/brightness"
+  echo "  BLPATH=\$(ls /sys/class/backlight/ | head -n1)"
+  echo "  echo <value> | sudo tee /sys/class/backlight/\$BLPATH/brightness"
+  echo "  # example 50%: echo 128 | sudo tee /sys/class/backlight/\$BLPATH/brightness"
   echo "Permanent change: sudo systemctl edit set-backlight"
   echo "  -> add: [Service]"
   echo "  ->      Environment=BRIGHTNESS=<value>"
