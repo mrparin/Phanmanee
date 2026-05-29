@@ -1,0 +1,16 @@
+[Unit]
+Description=Set touchscreen backlight brightness at boot
+DefaultDependencies=no
+After=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Brightness: 0 (ดับ) – 255 (สว่างเต็ม). ค่าเริ่มต้น 128 ≈ 50%.
+# แก้ค่า BRIGHTNESS ด้านล่างเพื่อปรับความสว่าง
+# หรือรัน: sudo systemctl edit set-backlight และ override Environment=BRIGHTNESS=<ค่า>
+Environment=BRIGHTNESS=128
+ExecStart=/bin/sh -c 'echo $BRIGHTNESS > /sys/class/backlight/rpi_backlight/brightness'
+
+[Install]
+WantedBy=sysinit.target

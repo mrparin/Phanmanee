@@ -323,6 +323,62 @@ sudo systemctl status durian-dashboard --no-pager
 sudo journalctl -u durian-dashboard -n 100 --no-pager
 ```
 
+### 5) การตั้งค่าความสว่างจอ Touchscreen (rpi_backlight)
+
+ใช้ได้เฉพาะกับ **Official Raspberry Pi 7" Touchscreen** เท่านั้น (ใช้ driver `rpi_backlight`)
+
+#### ระหว่างติดตั้งด้วย setup_pi_kiosk.sh
+
+สคริปต์จะถามว่าใช้จอ Touchscreen หรือเปล่า:
+
+```
+ใช้จอ Touchscreen หรือเปล่า? (จะตั้งค่าความสว่างจอให้) [n]: y
+ความสว่างจอ (0=ดับ, 255=เต็ม, 128=50%) [128]: 100
+```
+
+- ตอบ **y** → สคริปต์จะสร้างและเปิดใช้งาน `set-backlight.service` ซึ่งจะตั้งค่าความสว่างทุกครั้งที่ reboot
+- ตอบ **n** (หรือกด Enter) → ข้ามการตั้งค่าความสว่างทั้งหมด จอจะทำงานตามปกติ
+
+#### ระบุค่าล่วงหน้าผ่าน Environment variable
+
+```bash
+sudo USE_TOUCHSCREEN=y SCREEN_BRIGHTNESS=100 bash scripts/setup_pi_kiosk.sh --yes
+```
+
+#### ค่าความสว่างที่แนะนำ
+
+| ค่า | ระดับความสว่าง |
+|---:|---|
+| 255 | เต็ม 100% (ค่าเริ่มต้นของระบบ) |
+| 180 | ~70% (สว่างพอดี ในห้องสว่าง) |
+| 128 | ~50% (ค่าเริ่มต้นที่แนะนำ ยืดอายุจอ) |
+| 80  | ~30% (สำหรับห้องมืด/กลางคืน) |
+| 0   | ดับจอ (ยังใช้งานได้ via SSH) |
+
+#### ปรับความสว่างด้วยตนเองขณะใช้งาน
+
+```bash
+# ดูค่าปัจจุบัน
+cat /sys/class/backlight/rpi_backlight/brightness
+
+# ตั้งค่าใหม่ (เช่น 100)
+echo 100 | sudo tee /sys/class/backlight/rpi_backlight/brightness
+```
+
+#### ปรับค่า default สำหรับ reboot ครั้งต่อไป
+
+```bash
+sudo nano /etc/systemd/system/set-backlight.service
+# แก้บรรทัด Environment=BRIGHTNESS=128 เป็นค่าที่ต้องการ
+sudo systemctl daemon-reload
+```
+
+#### ตรวจสอบสถานะ service
+
+```bash
+sudo systemctl status set-backlight --no-pager
+```
+
 ## Environment variables (reference)
 
 ค่าที่รองรับในระบบ:
@@ -337,6 +393,18 @@ RETAIN_DAYS
 APP_HOST
 APP_PORT
 REFRESH_SECONDS
+```
+
+ค่าที่รองรับในสคริปต์ติดตั้ง (`setup_pi_kiosk.sh`):
+
+```bash
+APP_DIR            # โฟลเดอร์โปรเจกต์ (default: /opt/durian-dashboard)
+SERVICE_NAME       # ชื่อ systemd service
+PI_USER            # Linux user สำหรับ desktop autostart
+SCREEN_TIMEOUT     # เวลาพักหน้าจอ (วินาที, default: 3600)
+USE_TOUCHSCREEN    # y = ติดตั้ง backlight service, n = ข้าม (default: n)
+SCREEN_BRIGHTNESS  # ความสว่างจอ 0-255 (default: 128) ใช้เมื่อ USE_TOUCHSCREEN=y
+DASHBOARD_URL      # URL ของ dashboard สำหรับ kiosk browser
 ```
 
 ### Data retention policy (local cache)

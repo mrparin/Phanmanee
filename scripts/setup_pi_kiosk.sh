@@ -5,6 +5,8 @@ APP_DIR="${APP_DIR:-/opt/durian-dashboard}"
 SERVICE_NAME="${SERVICE_NAME:-durian-dashboard}"
 PI_USER="${PI_USER:-pi}"
 SCREEN_TIMEOUT="${SCREEN_TIMEOUT:-3600}"
+USE_TOUCHSCREEN="${USE_TOUCHSCREEN:-}"
+SCREEN_BRIGHTNESS="${SCREEN_BRIGHTNESS:-128}"
 DASHBOARD_URL="${DASHBOARD_URL:-http://127.0.0.1:8080}"
 ASSUME_YES=0
 
@@ -46,7 +48,13 @@ Options:
   --help, -h           Show this help text
 
 Environment overrides:
-  APP_DIR, SERVICE_NAME, PI_USER, PI_HOME, SCREEN_TIMEOUT, DASHBOARD_URL
+  APP_DIR, SERVICE_NAME, PI_USER, PI_HOME, SCREEN_TIMEOUT,
+  USE_TOUCHSCREEN, SCREEN_BRIGHTNESS, DASHBOARD_URL
+
+  USE_TOUCHSCREEN: set to 'y' to install backlight brightness control.
+    Requires the official RPi touchscreen (rpi_backlight driver).
+  SCREEN_BRIGHTNESS: backlight brightness 0-255 (default 128 = 50%).
+    Only used when USE_TOUCHSCREEN=y.
 EOF
 }
 
@@ -118,6 +126,13 @@ collect_inputs() {
   DASHBOARD_URL="$(prompt_with_default "Dashboard URL for kiosk" "$DASHBOARD_URL")"
   SCREEN_TIMEOUT="$(prompt_with_default "Screen timeout in seconds" "$SCREEN_TIMEOUT")"
 
+  if prompt_yes_no "ใช้จอ Touchscreen หรือเปล่า? (จะตั้งค่าความสว่างจอให้)" "n"; then
+    USE_TOUCHSCREEN=y
+    SCREEN_BRIGHTNESS="$(prompt_with_default "ความสว่างจอ (0=ดับ, 255=เต็ม, 128=50%)" "$SCREEN_BRIGHTNESS")"
+  else
+    USE_TOUCHSCREEN=n
+  fi
+
   refresh_paths
 
   echo
@@ -128,6 +143,10 @@ collect_inputs() {
   echo "- SERVICE_NAME=$SERVICE_NAME"
   echo "- DASHBOARD_URL=$DASHBOARD_URL"
   echo "- SCREEN_TIMEOUT=$SCREEN_TIMEOUT"
+  echo "- USE_TOUCHSCREEN=$USE_TOUCHSCREEN"
+  if [ "${USE_TOUCHSCREEN:-n}" = "y" ]; then
+    echo "- SCREEN_BRIGHTNESS=$SCREEN_BRIGHTNESS"
+  fi
 
   if ! prompt_yes_no "Continue setup" "y"; then
     die "Cancelled by user"
@@ -175,6 +194,38 @@ setup_systemd_service() {
   systemctl daemon-reload
   systemctl enable "$SERVICE_NAME"
   systemctl restart "$SERVICE_NAME"
+}
+
+setup_backlight_service() {
+  local BACKLIGHT_SRC="$APP_DIR/systemd/set-backlight.service"
+  local BACKLIGHT_DST="/etc/systemd/system/set-backlight.service"
+
+  if [ "${USE_TOUCHSCREEN:-n}" != "y" ]; then
+    log "Skipping backlight setup (not a touchscreen)"
+    return
+  fi
+
+  if [ ! -f "$BACKLIGHT_SRC" ]; then
+    warn "set-backlight.service not found ($BACKLIGHT_SRC), skipping brightness setup"
+    return
+  fi
+
+  if ! ls /sys/class/backlight/rpi_backlight/brightness >/dev/null 2>&1; then
+    warn "rpi_backlight driver not found – brightness will not be set on this system"
+    warn "If you have a different display, set brightness manually via /sys/class/backlight/*/brightness"
+    return
+  fi
+
+  log "Installing backlight service (brightness=$SCREEN_BRIGHTNESS)"
+  # Write service with substituted brightness value
+  sed "s/^Environment=BRIGHTNESS=.*/Environment=BRIGHTNESS=$SCREEN_BRIGHTNESS/" \
+    "$BACKLIGHT_SRC" > "$BACKLIGHT_DST"
+
+  systemctl daemon-reload
+  systemctl enable set-backlight
+  # Apply immediately without rebooting
+  echo "$SCREEN_BRIGHTNESS" > /sys/class/backlight/rpi_backlight/brightness
+  log "Brightness set to $SCREEN_BRIGHTNESS / 255"
 }
 
 set_desktop_autologin() {
@@ -296,6 +347,13 @@ print_summary() {
   echo "xset s $SCREEN_TIMEOUT 0"
   echo "xset +dpms"
   echo "xset dpms $SCREEN_TIMEOUT $SCREEN_TIMEOUT $SCREEN_TIMEOUT"
+  echo
+  echo "Adjust brightness at runtime (0-255):"
+  echo "  echo <value> | sudo tee /sys/class/backlight/rpi_backlight/brightness"
+  echo "  # example 50%: echo 128 | sudo tee /sys/class/backlight/rpi_backlight/brightness"
+  echo "Permanent change: sudo systemctl edit set-backlight"
+  echo "  -> add: [Service]"
+  echo "  ->      Environment=BRIGHTNESS=<value>"
 }
 
 main() {
@@ -307,6 +365,7 @@ main() {
   install_packages
   setup_python_env
   setup_systemd_service
+  setup_backlight_service
   set_desktop_autologin
   create_kiosk_launcher
   create_desktop_autostart
