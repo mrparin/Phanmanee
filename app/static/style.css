@@ -135,6 +135,94 @@ h1 i,
   box-shadow: 0 2px 8px 0 #7aaace44;
 }
 
+.connection-widget {
+  background: #fff7eb;
+  border: 2px solid #9cd5ff;
+  color: #1f3447;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: fit-content;
+  max-width: 100%;
+  justify-self: start;
+  border-radius: 999px;
+  padding: 0.45rem 0.75rem;
+}
+
+.connection-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.connection-head h2 {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+}
+
+.connection-head h2 i {
+  color: #355872;
+}
+
+.connection-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #f59e0b;
+  box-shadow: 0 0 0 3px #f59e0b33;
+  flex-shrink: 0;
+}
+
+.connection-state {
+  margin: 0;
+  font-size: 0.84rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.connection-meta {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #355872;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.connection-widget.conn-online {
+  border-color: #22a06b;
+  background: #f2fff8;
+}
+
+.connection-widget.conn-online .connection-dot {
+  background: #22a06b;
+  box-shadow: 0 0 0 3px #22a06b33;
+}
+
+.connection-widget.conn-offline {
+  border-color: #e63946;
+  background: #fff5f5;
+}
+
+.connection-widget.conn-offline .connection-dot {
+  background: #e63946;
+  box-shadow: 0 0 0 3px #e6394633;
+}
+
+.connection-widget.conn-checking {
+  border-color: #f59e0b;
+  background: #fffaf0;
+}
+
+.connection-widget.conn-checking .connection-dot {
+  background: #f59e0b;
+  box-shadow: 0 0 0 3px #f59e0b33;
+}
+
 .layout {
   padding: 1rem;
   display: grid;
@@ -527,6 +615,22 @@ h1 i,
 
   .topbar h1 {
     font-size: 1.6rem;
+  }
+
+  .connection-state {
+    font-size: 0.84rem;
+  }
+
+  .connection-widget {
+    width: 100%;
+    justify-self: stretch;
+    border-radius: 14px;
+    flex-wrap: wrap;
+    row-gap: 0.35rem;
+  }
+
+  .connection-meta {
+    white-space: normal;
   }
 
   .weather-header {

@@ -18,6 +18,15 @@
     </header>
 
     <main class="layout">
+      <section class="panel connection-widget conn-checking" id="deviceConnectionCard">
+        <div class="connection-head">
+          <h2><i class="bi bi-router-fill" aria-hidden="true"></i> Device Connection</h2>
+          <span class="connection-dot" id="deviceConnectionDot" aria-hidden="true"></span>
+        </div>
+        <p class="connection-state" id="deviceConnectionState">Checking...</p>
+        <p class="connection-meta" id="deviceConnectionMeta">รอข้อมูลจากอุปกรณ์</p>
+      </section>
+
       <section class="panel grouped-panel air-group">
         <h2 class="group-title"><i class="bi bi-cloud-sun-fill" aria-hidden="true"></i> สภาพแวดล้อมอากาศ (Air Environment)</h2>
         <div class="kpi-grid">
@@ -142,6 +151,11 @@
         applyStatusClass(document.getElementById("phCard"), data.ph_status);
 
         if (data.timestamp_ms) {
+          const timestampMs = Number(data.timestamp_ms);
+          if (Number.isFinite(timestampMs)) {
+            lastDeviceSampleTs = timestampMs;
+            updateDeviceConnectionWidget();
+          }
           document.getElementById("updatedAt").textContent = "Updated: " + new Date(data.timestamp_ms).toLocaleString();
         }
       }
@@ -219,6 +233,81 @@
       let wsBackoffMs = 1000;
       let lastWsMessageAt = 0;
       let wsConnectingStart = 0;
+      let lastDeviceSampleTs = null;
+
+      const deviceOfflineThresholdMs = Math.max(30000, refreshSeconds * 10000);
+
+      function setDeviceConnectionState(state, message) {
+        const card = document.getElementById("deviceConnectionCard");
+        const stateEl = document.getElementById("deviceConnectionState");
+        const metaEl = document.getElementById("deviceConnectionMeta");
+
+        if (!card || !stateEl || !metaEl) return;
+
+        card.classList.remove("conn-online", "conn-offline", "conn-checking");
+        card.classList.add(`conn-${state}`);
+
+        if (state === "online") {
+          stateEl.textContent = "Online";
+        } else if (state === "offline") {
+          stateEl.textContent = "Offline";
+        } else {
+          stateEl.textContent = "Checking...";
+        }
+
+        metaEl.textContent = message;
+      }
+
+      function formatElapsedThai(ageMs) {
+        const totalSec = Math.max(0, Math.round(ageMs / 1000));
+        const days = Math.floor(totalSec / 86400);
+        const hours = Math.floor((totalSec % 86400) / 3600);
+        const minutes = Math.floor((totalSec % 3600) / 60);
+        const seconds = totalSec % 60;
+
+        if (totalSec < 60) {
+          return `${seconds} วินาที`;
+        }
+
+        if (totalSec < 3600) {
+          if (seconds === 0) {
+            return `${Math.floor(totalSec / 60)} นาที`;
+          }
+          return `${Math.floor(totalSec / 60)} นาที ${seconds} วินาที`;
+        }
+
+        if (totalSec < 86400) {
+          if (minutes === 0) {
+            return `${Math.floor(totalSec / 3600)} ชั่วโมง`;
+          }
+          return `${Math.floor(totalSec / 3600)} ชั่วโมง ${minutes} นาที`;
+        }
+
+        if (hours === 0) {
+          return `${days} วัน`;
+        }
+
+        return `${days} วัน ${hours} ชั่วโมง`;
+      }
+
+      function updateDeviceConnectionWidget() {
+        const now = Date.now();
+
+        if (lastDeviceSampleTs === null) {
+          setDeviceConnectionState("checking", "รอข้อมูลจากอุปกรณ์");
+          return;
+        }
+
+        const ageMs = Math.max(0, now - lastDeviceSampleTs);
+        const elapsedText = formatElapsedThai(ageMs);
+
+        if (ageMs <= deviceOfflineThresholdMs) {
+          setDeviceConnectionState("online", `อัปเดตล่าสุด ${elapsedText} ที่แล้ว`);
+          return;
+        }
+
+        setDeviceConnectionState("offline", `ขาดข้อมูลมาแล้ว ${elapsedText}`);
+      }
 
       function setTopBadgeStatus(text) {
         const el = document.getElementById("updatedAt");
@@ -327,12 +416,14 @@
       window.addEventListener("offline", () => {
         setTopBadgeStatus("Offline - waiting for network...");
         closeWs();
+        updateDeviceConnectionWidget();
       });
 
       window.addEventListener("online", () => {
         setTopBadgeStatus("Network restored - reconnecting...");
         wsBackoffMs = 1000;
         connectWs();
+        updateDeviceConnectionWidget();
       });
 
       setInterval(() => {
@@ -358,6 +449,8 @@
       }, 10000);
 
       connectWs();
+        updateDeviceConnectionWidget();
+        setInterval(updateDeviceConnectionWidget, 3000);
       refreshCharts();
       setInterval(refreshCharts, Math.max(30, refreshSeconds * 10) * 1000);
 
