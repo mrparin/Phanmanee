@@ -21,6 +21,27 @@ Lightweight MQTT dashboard for Raspberry Pi 3 without Node-RED, InfluxDB, or Thi
   - `vpd_status`, `vpd_message`, `vpd_action`
   - `ph_status`, `ph_message`, `ph_action`
 - Realtime cards and history charts (24h / 7d)
+- TMD Weather Forecast API integration (province/amphoe/tambon)
+- Merged farm summary from onsite sensors + TMD forecast
+- LINE push alerts for warning/danger risk levels
+
+## Version updates (May 2026)
+
+รายการอัปเดตสำคัญในเวอร์ชันนี้:
+
+- เปลี่ยนแหล่งพยากรณ์จาก Open-Meteo เป็น TMD NWP API (OAuth Bearer token)
+- เพิ่ม endpoint ใหม่สำหรับพยากรณ์และสรุปความเสี่ยง:
+  - `GET /api/weather`
+  - `GET /api/farm-summary`
+  - `POST /api/line/test-alert`
+- เพิ่มการรวมข้อมูลสถานีในสวน + พยากรณ์ TMD เพื่อคำนวณ `risk_level` (`normal`/`warning`/`danger`)
+- เพิ่มการแจ้งเตือน LINE ทั้งแบบ manual test และแบบ periodic auto-alert (ตั้งค่าได้จาก `.env`)
+- ปรับข้อความ LINE เป็นรูปแบบอ่านง่ายพร้อมไอคอน
+- ปรับ UI ส่วนพยากรณ์ 7 วัน และช่องกรอกตำแหน่ง (ตำบล/อำเภอ/จังหวัด)
+- เพิ่ม fallback ตอนค้นหาพื้นที่ TMD:
+  - ลอง `ตำบล+อำเภอ+จังหวัด`
+  - ถ้าไม่พบจะลดเป็น `อำเภอ+จังหวัด`
+  - ถ้ายังไม่พบจะลอง `จังหวัด` เพื่อไม่ให้หน้าเว็บล้มง่ายเมื่อสะกดชื่อพื้นที่ไม่ตรง
 
 ## การรันบนเครื่อง local (Windows) เพื่อทดสอบ
 
@@ -393,6 +414,17 @@ RETAIN_DAYS
 APP_HOST
 APP_PORT
 REFRESH_SECONDS
+TMD_BASE_URL
+TMD_ACCESS_TOKEN
+TMD_PROVINCE
+TMD_AMPHOE
+TMD_TAMBON
+TMD_FORECAST_DAYS
+LINE_CHANNEL_ACCESS_TOKEN
+LINE_USER_ID
+LINE_ALERT_ENABLED
+LINE_ALERT_INTERVAL_SECONDS
+LINE_ALERT_COOLDOWN_MINUTES
 ```
 
 ค่าที่รองรับในสคริปต์ติดตั้ง (`setup_pi_kiosk.sh`):
@@ -417,7 +449,192 @@ DASHBOARD_URL      # URL ของ dashboard สำหรับ kiosk browser
 
 - `GET /api/latest`
 - `GET /api/history?field=vpd_kpa&hours=24`
+- `GET /api/scatter?pair=air&hours=24`
+- `GET /api/weather?province=...&amphoe=...&tambon=...&duration_days=7`
+- `GET /api/farm-summary?province=...&amphoe=...&tambon=...&duration_days=7`
+- `POST /api/line/test-alert?province=...&amphoe=...&tambon=...`
 - `WS /ws`
+
+## วิธีทดสอบ Endpoint
+
+ตัวอย่างนี้ใช้ host local: `http://127.0.0.1:8080`
+
+### 1) ทดสอบด้วย Browser (เฉพาะ GET)
+
+- Latest:
+  - `http://127.0.0.1:8080/api/latest`
+- Weather (TMD):
+  - `http://127.0.0.1:8080/api/weather?province=จันทบุรี&amphoe=นายายอาม&tambon=วังโตนด&duration_days=7`
+- Farm summary:
+  - `http://127.0.0.1:8080/api/farm-summary?province=จันทบุรี&amphoe=นายายอาม&tambon=วังโตนด&duration_days=7`
+
+หมายเหตุ: `POST /api/line/test-alert` เปิดลิงก์ตรงใน browser ไม่ได้ ต้องยิงแบบ POST ด้วยคำสั่งหรือเครื่องมือ API
+
+### 2) ทดสอบด้วย PowerShell
+
+```powershell
+# GET /api/weather
+Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8080/api/weather?province=จันทบุรี&amphoe=นายายอาม&tambon=วังโตนด&duration_days=7" | ConvertTo-Json -Depth 8
+
+# GET /api/farm-summary
+Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8080/api/farm-summary?province=จันทบุรี&amphoe=นายายอาม&tambon=วังโตนด&duration_days=7" | ConvertTo-Json -Depth 8
+
+# POST /api/line/test-alert
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8080/api/line/test-alert?province=จันทบุรี&amphoe=นายายอาม&tambon=วังโตนด" | ConvertTo-Json -Depth 8
+```
+
+### 3) ทดสอบด้วย curl
+
+```bash
+# GET /api/weather
+curl "http://127.0.0.1:8080/api/weather?province=จันทบุรี&amphoe=นายายอาม&tambon=วังโตนด&duration_days=7"
+
+# GET /api/farm-summary
+curl "http://127.0.0.1:8080/api/farm-summary?province=จันทบุรี&amphoe=นายายอาม&tambon=วังโตนด&duration_days=7"
+
+# POST /api/line/test-alert
+curl -X POST "http://127.0.0.1:8080/api/line/test-alert?province=จันทบุรี&amphoe=นายายอาม&tambon=วังโตนด"
+```
+
+### 4) ตรวจสอบกรณีพื้นที่สะกดไม่ตรง (fallback)
+
+ระบบจะพยายามผ่อนเงื่อนไขพื้นที่ให้อัตโนมัติ ดังนั้นสามารถทดสอบได้ด้วยตัวอย่างนี้:
+
+```bash
+curl "http://127.0.0.1:8080/api/weather?province=จันทบุรี&amphoe=อำเภอที่ไม่มี&tambon=ตำบลที่ไม่มี&duration_days=7"
+```
+
+คาดหวังผล: ยังได้ข้อมูลพยากรณ์ (fallback ไป query ระดับจังหวัด)
+
+## ตัวอย่าง Response (แบบย่อ)
+
+### `GET /api/weather`
+
+```json
+{
+  "source": "tmd",
+  "location": {
+    "province": "จันทบุรี",
+    "amphoe": "นายายอาม",
+    "tambon": "วังโตนด",
+    "lat": 12.703082,
+    "lon": 101.929916,
+    "region": "E",
+    "areatype": "tambon"
+  },
+  "days": [
+    {
+      "time": "2026-05-31T00:00:00+07:00",
+      "tc_min": 25.04,
+      "tc_max": 31.73,
+      "rh": 81.76,
+      "rain": 0.0,
+      "ws10m": 8.07,
+      "cond": 4
+    }
+  ]
+}
+```
+
+### `GET /api/farm-summary`
+
+```json
+{
+  "place": {
+    "province": "จันทบุรี",
+    "amphoe": "นายายอาม",
+    "tambon": "วังโตนด"
+  },
+  "weather": {
+    "source": "tmd",
+    "location": {
+      "province": "จันทบุรี",
+      "amphoe": "นายายอาม",
+      "tambon": "วังโตนด"
+    },
+    "days": [
+      {
+        "time": "2026-05-31T00:00:00+07:00",
+        "tc_min": 25.04,
+        "tc_max": 31.73,
+        "rh": 81.76,
+        "rain": 0.0,
+        "ws10m": 8.07,
+        "cond": 4
+      }
+    ]
+  },
+  "summary": {
+    "risk_level": "normal",
+    "headline": "สภาพรวมอยู่ในเกณฑ์ปกติ",
+    "reasons": ["ค่าจากสถานีและพยากรณ์ยังไม่พบความเสี่ยงเด่น"],
+    "actions": ["รักษาแผนดูแลปัจจุบันและติดตามข้อมูลต่อเนื่อง"],
+    "snapshot": {
+      "vpd_kpa": 0.15,
+      "soil_humi": 40.6,
+      "forecast_today": {
+        "tc_max": 31.73,
+        "tc_min": 25.04,
+        "rh": 81.76,
+        "rain": 0.0,
+        "cond_text": "เมฆครึ้ม"
+      },
+      "forecast_3d": {
+        "max_temp": 31.73,
+        "rain_sum": 38.5
+      }
+    }
+  }
+}
+```
+
+## Troubleshooting
+
+### Quick Troubleshooting (1 หน้า)
+
+#### Windows (PowerShell)
+
+| อาการ | สาเหตุที่เป็นไปได้ | วิธีแก้ | คำสั่งตรวจสอบ |
+|---|---|---|---|
+| `TMD access token is not configured` | ไม่ได้ตั้งค่า `TMD_ACCESS_TOKEN` ใน `.env` | ใส่ token แล้ว restart service | `Select-String "TMD_ACCESS_TOKEN" .env` |
+| `TMD API error: 401` | Token หมดอายุหรือไม่ถูกต้อง | ออก token ใหม่จาก TMD แล้วอัปเดต `.env` จากนั้น restart | `Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8080/api/weather?province=จันทบุรี"` |
+| `province is required` | ไม่ส่ง `province` ใน query และไม่ได้ตั้ง `TMD_PROVINCE` | ใส่ `province` ใน URL หรือกำหนด `TMD_PROVINCE` ใน `.env` | `Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8080/api/weather?province=จันทบุรี"` |
+| โหลดพยากรณ์ไม่สำเร็จเมื่อกรอกอำเภอ/ตำบล | สะกดชื่อพื้นที่ไม่ตรงฐานข้อมูล TMD | เริ่มทดสอบจากระดับจังหวัดก่อน แล้วค่อยเพิ่มอำเภอ/ตำบล | `Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8080/api/weather?province=จันทบุรี&amphoe=อำเภอที่ไม่มี&tambon=ตำบลที่ไม่มี"` |
+| `LINE notifier is not configured` | ขาด `LINE_CHANNEL_ACCESS_TOKEN` หรือ `LINE_USER_ID` | ใส่ค่าให้ครบใน `.env` แล้ว restart | `Select-String "LINE_CHANNEL_ACCESS_TOKEN|LINE_USER_ID" .env` |
+| ยิง `/api/line/test-alert` แล้วไม่เข้าไลน์ | Token/ผู้รับไม่ถูกต้อง หรือบอทส่งหา user ไม่ได้ | ตรวจ token ใหม่, ตรวจ user id, ทดสอบ POST ซ้ำ | `Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8080/api/line/test-alert?province=จันทบุรี&amphoe=นายายอาม&tambon=วังโตนด"` |
+| หน้าเว็บไม่อัปเดตหลังแก้โค้ด | Service ยังรัน process เก่า | restart service หรือรันใหม่ | `python -m uvicorn app.main:app --host 0.0.0.0 --port 8080 --env-file .env` |
+
+#### Raspberry Pi (Linux)
+
+| อาการ | สาเหตุที่เป็นไปได้ | วิธีแก้ | คำสั่งตรวจสอบ |
+|---|---|---|---|
+| `TMD access token is not configured` | ไม่ได้ตั้งค่า `TMD_ACCESS_TOKEN` ใน `.env` | ใส่ token แล้ว restart service | `grep TMD_ACCESS_TOKEN .env` |
+| `TMD API error: 401` | Token หมดอายุหรือไม่ถูกต้อง | ออก token ใหม่จาก TMD แล้วอัปเดต `.env` จากนั้น restart | `curl "http://127.0.0.1:8080/api/weather?province=จันทบุรี"` |
+| `province is required` | ไม่ส่ง `province` ใน query และไม่ได้ตั้ง `TMD_PROVINCE` | ใส่ `province` ใน URL หรือกำหนด `TMD_PROVINCE` ใน `.env` | `curl "http://127.0.0.1:8080/api/weather?province=จันทบุรี"` |
+| โหลดพยากรณ์ไม่สำเร็จเมื่อกรอกอำเภอ/ตำบล | สะกดชื่อพื้นที่ไม่ตรงฐานข้อมูล TMD | เริ่มทดสอบจากระดับจังหวัดก่อน แล้วค่อยเพิ่มอำเภอ/ตำบล | `curl "http://127.0.0.1:8080/api/weather?province=จันทบุรี&amphoe=อำเภอที่ไม่มี&tambon=ตำบลที่ไม่มี"` |
+| `LINE notifier is not configured` | ขาด `LINE_CHANNEL_ACCESS_TOKEN` หรือ `LINE_USER_ID` | ใส่ค่าให้ครบใน `.env` แล้ว restart | `grep -E "LINE_CHANNEL_ACCESS_TOKEN|LINE_USER_ID" .env` |
+| ยิง `/api/line/test-alert` แล้วไม่เข้าไลน์ | Token/ผู้รับไม่ถูกต้อง หรือบอทส่งหา user ไม่ได้ | ตรวจ token ใหม่, ตรวจ user id, ทดสอบ POST ซ้ำ | `curl -X POST "http://127.0.0.1:8080/api/line/test-alert?province=จันทบุรี&amphoe=นายายอาม&tambon=วังโตนด"` |
+| หน้าเว็บไม่อัปเดตหลังแก้โค้ด | Service ยังรัน process เก่า | restart service หรือรันใหม่ | `sudo systemctl restart durian-dashboard` และ `sudo journalctl -u durian-dashboard -n 50 --no-pager` |
+
+- อาการ: `TMD access token is not configured`
+  สาเหตุ: ยังไม่ได้ตั้งค่า `TMD_ACCESS_TOKEN` ในไฟล์ `.env`
+  วิธีแก้: ใส่ token ใหม่ แล้ว restart service
+
+- อาการ: `TMD API error: 401` หรือดึงข้อมูลไม่ได้หลังใช้งานไปสักพัก
+  สาเหตุ: token หมดอายุหรือไม่ถูกต้อง
+  วิธีแก้: ออก token ใหม่จาก TMD แล้วอัปเดต `.env` จากนั้น restart service
+
+- อาการ: `province is required`
+  สาเหตุ: ไม่ได้ส่งพารามิเตอร์จังหวัดและไม่ได้ตั้ง `TMD_PROVINCE` ใน `.env`
+  วิธีแก้: ระบุ `province` ใน query หรือกำหนดค่า `TMD_PROVINCE`
+
+- อาการ: `place not found in TMD`
+  สาเหตุ: ชื่อพื้นที่สะกดไม่ตรงฐานข้อมูล TMD และแม้ fallback แล้วก็ยังไม่พบ
+  วิธีแก้: ตรวจสะกดชื่อจังหวัด/อำเภอ/ตำบลใหม่ (แนะนำเริ่มจากจังหวัดก่อน)
+
+- อาการ: `LINE notifier is not configured`
+  สาเหตุ: ยังไม่ได้ตั้ง `LINE_CHANNEL_ACCESS_TOKEN` หรือ `LINE_USER_ID`
+  วิธีแก้: ใส่ค่าให้ครบใน `.env` แล้ว restart service
 
 ## Payload example
 
