@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from dataclasses import dataclass
+
+from dotenv import load_dotenv
+
+
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 
 def _env_bool(name: str, default: bool) -> bool:
